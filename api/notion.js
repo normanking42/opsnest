@@ -11,17 +11,17 @@ export default async function handler(req, res) {
   const { endpoint } = req.query
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint param' })
 
+  const isPageGet = endpoint.startsWith('pages/')
   try {
     const notionRes = await fetch(`https://api.notion.com/v1/${endpoint}`, {
-      method: 'POST',
+      method: isPageGet ? 'GET' : 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Notion-Version': '2022-06-28',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(req.body || {}),
+      body: isPageGet ? undefined : JSON.stringify(req.body || {}),
     })
-
     const data = await notionRes.json()
     return res.status(notionRes.status).json(data)
   } catch (err) {
