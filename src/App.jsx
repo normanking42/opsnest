@@ -110,6 +110,13 @@ function useRoleMap() {
         if (name) pageCache[row.id] = name
       })
     }).catch(() => {})
+    queryDB(DB.employees).then(rows => {
+      rows.forEach(row => {
+        const name = getProp(row.properties, 'Name') || ''
+        const n = Array.isArray(name) ? name[0] : name
+        if (n && n !== 'Employee Template') pageCache[row.id] = n
+      })
+    }).catch(() => {})
   }, [])
 }
 
