@@ -30,6 +30,16 @@ async function getPage(pageId) {
   return res.json()
 }
 
+async function updatePage(pageId, properties) {
+  const res = await fetch(`/api/notion?endpoint=pages/${pageId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  })
+  if (!res.ok) throw new Error(`Update failed ${res.status}`)
+  return res.json()
+}
+
 function getProp(props, name) {
   const p = props[name]
   if (!p) return ''
@@ -43,6 +53,7 @@ function getProp(props, name) {
     case 'date':         return p.date?.start || ''
     case 'people':       return p.people.map(u => u.name || u.id)
     case 'relation':     return p.relation.map(r => r.id)
+    case 'status':       return p.status?.name || ''
     case 'rollup':
       if (p.rollup.type === 'array')
         return p.rollup.array.map(item => {
@@ -88,23 +99,18 @@ function useDB(dbId) {
       .then(rows => { setData(rows); setLoading(false) })
       .catch(e   => { setError(e.message); setLoading(false) })
   }, [dbId])
-  return { data, loading, error }
+  return { data, loading, error, setData }
 }
 
 function useRoleMap() {
-  const [roleMap, setRoleMap] = useState({})
   useEffect(() => {
     queryDB(DB.roles).then(rows => {
-      const map = {}
       rows.forEach(row => {
-        const name = getProp(row.properties, 'Name') || getProp(row.properties, 'Role Name') || getProp(row.properties, 'Title') || ''
-        if (name) map[row.id] = name
+        const name = getProp(row.properties, 'Name') || getProp(row.properties, 'Role Name') || ''
+        if (name) pageCache[row.id] = name
       })
-      Object.assign(pageCache, map)
-      setRoleMap(map)
     }).catch(() => {})
   }, [])
-  return roleMap
 }
 
 function Loading() { return <div className="loading">Loading…</div> }
@@ -132,14 +138,16 @@ function ProgressBar({ value = 0, max = 100 }) {
 function statusBadge(status) {
   if (!status) return <span className="badge badge-gray">—</span>
   const s = status.toLowerCase()
-  if (s.includes('active') || s.includes('complete') || s.includes('done'))
+  if (s.includes('complete') || s.includes('done') || s.includes('passed'))
     return <span className="badge badge-green">{status}</span>
-  if (s.includes('progress') || s.includes('ongoing'))
+  if (s.includes('progress') || s.includes('ongoing') || s.includes('started'))
     return <span className="badge badge-blue">{status}</span>
   if (s.includes('pending') || s.includes('assigned'))
     return <span className="badge badge-yellow">{status}</span>
-  if (s.includes('inactive') || s.includes('overdue'))
+  if (s.includes('inactive') || s.includes('overdue') || s.includes('failed'))
     return <span className="badge badge-red">{status}</span>
+  if (s.includes('active'))
+    return <span className="badge badge-green">{status}</span>
   return <span className="badge badge-gray">{status}</span>
 }
 
@@ -152,6 +160,99 @@ function RelationCell({ ids }) {
   if (names === null) return <span style={{ color:'#a0aec0', fontSize:12 }}>…</span>
   if (names.length === 0) return <span style={{ color:'#a0aec0' }}>—</span>
   return <span>{names.join(', ')}</span>
+}
+
+const TRAINING_STATUSES = ['Not Started','Assigned','In Progress','Started','Completed','Passed','Failed']
+
+function TrainingEditModal({ row, onClose, onSave }) {
+  const props = row.properties
+  const name = getProp(props, 'Assignment Name') || getProp(props, 'Name') || 'Unnamed'
+  const [status,  setStatus]  = useState(getProp(props, 'Status') || '')
+  const [score,   setScore]   = useState(getProp(props, 'Score (%)') ?? '')
+  const [notes,   setNotes]   = useState(getProp(props, 'Notes') || '')
+  const [compDate,setCompDate]= useState(getProp(props, 'Completed Date') || '')
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState(null)
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    try {
+      const properties = {
+        'Status': { status: { name: status } },
+      }
+      if (score !== '') properties['Score (%)'] = { number: parseFloat(score) }
+      if (notes !== '') properties['Notes'] = { rich_text: [{ text: { content: notes } }] }
+      if (compDate) properties['Completed Date'] = { date: { start: compDate } }
+
+      await updatePage(row.id, properties)
+      onSave({ status, score, notes, compDate })
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, background:'rgba(0,0,0,0.4)',
+      display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000
+    }}>
+      <div style={{
+        background:'white', borderRadius:16, padding:32, width:480,
+        boxShadow:'0 20px 60px rgba(0,0,0,0.2)'
+      }}>
+        <h2 style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>Update Training</h2>
+        <p style={{ color:'#718096', fontSize:14, marginBottom:24 }}>{name}</p>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={{ fontSize:12, fontWeight:600, color:'#4a5568', display:'block', marginBottom:6 }}>STATUS</label>
+          <select value={status} onChange={e => setStatus(e.target.value)}
+            style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14 }}>
+            {TRAINING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={{ fontSize:12, fontWeight:600, color:'#4a5568', display:'block', marginBottom:6 }}>SCORE (%)</label>
+          <input type="number" min="0" max="100" value={score}
+            onChange={e => setScore(e.target.value)}
+            style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14 }}
+            placeholder="0–100"
+          />
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={{ fontSize:12, fontWeight:600, color:'#4a5568', display:'block', marginBottom:6 }}>COMPLETED DATE</label>
+          <input type="date" value={compDate} onChange={e => setCompDate(e.target.value)}
+            style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14 }}
+          />
+        </div>
+
+        <div style={{ marginBottom:24 }}>
+          <label style={{ fontSize:12, fontWeight:600, color:'#4a5568', display:'block', marginBottom:6 }}>NOTES</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+            style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14, resize:'vertical' }}
+            placeholder="Add notes…"
+          />
+        </div>
+
+        {error && <div className="error" style={{ marginBottom:16 }}>{error}</div>}
+
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+          <button onClick={onClose}
+            style={{ padding:'10px 20px', borderRadius:8, border:'1px solid #e2e8f0', background:'white', cursor:'pointer', fontSize:14 }}>
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding:'10px 20px', borderRadius:8, border:'none', background:'#1a1f36', color:'white', cursor:'pointer', fontSize:14, fontWeight:600 }}>
+            {saving ? 'Saving…' : 'Save to Notion'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function Dashboard() {
@@ -403,40 +504,82 @@ function Tasks() {
 }
 
 function Training() {
-  const { data, loading, error } = useDB(DB.training)
+  const { data, loading, error, setData } = useDB(DB.training)
+  const [editRow, setEditRow] = useState(null)
+
   if (loading) return <Loading />
   if (error)   return <Err msg={error} />
+
+  function handleSave(pageId, updates) {
+    setData(prev => prev.map(row => {
+      if (row.id !== pageId) return row
+      const props = { ...row.properties }
+      if (updates.status) props['Status'] = { type:'status', status:{ name: updates.status } }
+      if (updates.score !== '') props['Score (%)'] = { type:'number', number: parseFloat(updates.score) }
+      if (updates.notes) props['Notes'] = { type:'rich_text', rich_text:[{ plain_text: updates.notes }] }
+      if (updates.compDate) props['Completed Date'] = { type:'date', date:{ start: updates.compDate } }
+      return { ...row, properties: props }
+    }))
+    setEditRow(null)
+  }
+
   return (
     <div>
       <div className="section-title">Training Assignments ({data.length})</div>
       <div className="card">
         <table>
-          <thead><tr><th>Training</th><th>Assignee</th><th>Due Date</th><th>Progress</th><th>Status</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Assignment</th>
+              <th>Employee</th>
+              <th>Due Date</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
             {data.map(row => {
               const props       = row.properties
-              const name        = getProp(props, 'Name') || getProp(props, 'Training') || getProp(props, 'Title') || 'Unnamed'
-              const assigneeIds = getProp(props, 'Assignee') || getProp(props, 'Employee') || getProp(props, 'Assigned To') || []
-              const due         = getProp(props, 'Due Date') || getProp(props, 'Deadline') || ''
-              const progress    = getProp(props, 'Progress') || getProp(props, 'Completion') || 0
+              const name        = getProp(props, 'Assignment Name') || getProp(props, 'Name') || getProp(props, 'Title') || 'Unnamed'
+              const employeeIds = getProp(props, 'Employee') || []
+              const due         = getProp(props, 'Due Date') || ''
+              const score       = getProp(props, 'Score (%)') ?? ''
               const status      = getProp(props, 'Status') || ''
+              const statusStr   = Array.isArray(status) ? status[0] : status
               return (
                 <tr key={row.id}>
                   <td style={{ fontWeight:500 }}>{Array.isArray(name) ? name[0] : name}</td>
                   <td style={{ color:'#718096', fontSize:13 }}>
-                    {Array.isArray(assigneeIds) ? <RelationCell ids={assigneeIds} /> : assigneeIds}
+                    <RelationCell ids={Array.isArray(employeeIds) ? employeeIds : []} />
                   </td>
                   <td style={{ color:'#718096', fontSize:13 }}>{due || '—'}</td>
-                  <td style={{ minWidth:120 }}>
-                    {typeof progress === 'number' ? <ProgressBar value={progress} /> : progress || '—'}
+                  <td style={{ fontSize:13 }}>{score !== '' ? `${score}%` : '—'}</td>
+                  <td>{statusBadge(statusStr)}</td>
+                  <td>
+                    <button onClick={() => setEditRow(row)}
+                      style={{
+                        padding:'4px 12px', borderRadius:6, border:'1px solid #e2e8f0',
+                        background:'white', cursor:'pointer', fontSize:12, fontWeight:500,
+                        color:'#4a5568'
+                      }}>
+                      Edit
+                    </button>
                   </td>
-                  <td>{statusBadge(Array.isArray(status) ? status[0] : status)}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       </div>
+
+      {editRow && (
+        <TrainingEditModal
+          row={editRow}
+          onClose={() => setEditRow(null)}
+          onSave={(updates) => handleSave(editRow.id, updates)}
+        />
+      )}
     </div>
   )
 }
