@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
 
 const DB = {
-  employees:   'e2ef9300-b9fd-43df-a71f-04d36b6a9a3a',
-  roles:       '75d986ea-d379-45f9-8d91-cee86bc8d286',
-  jobDesc:     '2133bc48-187d-8039-bd5b-000bbb73ca5e',
-  tasks:       '622162bc-2242-4ddd-902e-52e8a61ec0d4',
-  skills:      '94d120de-84c5-4a42-a666-4521520994f9',
-  training:    'fb1878d0-298e-42a7-aef6-2ea7a92bf87c',
+  employees:   '1213bc48-187d-8057-8f6d-f3fee68c2570',
+  roles:       '1213bc48-187d-8030-aecf-e38042dc0bb3',
+  jobDesc:     '2133bc48-187d-804e-b9f7-cbfe5d4d758d',
+  tasks:       '5dc7135d-3896-4592-8a12-efd44943826e',
+  skills:      '8aa58426-b75a-4986-a334-2d6bd3d2a69a',
+  training:    '9ee4e81e-a6d2-455a-b5e0-23f1923b1930',
 }
 
 async function queryDB(dbId, body = {}) {
