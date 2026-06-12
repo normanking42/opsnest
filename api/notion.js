@@ -11,15 +11,19 @@ export default async function handler(req, res) {
   const { endpoint } = req.query
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint param' })
 
+  // pages/{id} is a GET, everything else is POST or PATCH
+  const isGet   = endpoint.match(/^pages\/[^/]+$/) && req.method !== 'PATCH'
+  const method  = req.method === 'PATCH' ? 'PATCH' : isGet ? 'GET' : 'POST'
+
   try {
     const notionRes = await fetch(`https://api.notion.com/v1/${endpoint}`, {
-      method: req.method === 'PATCH' ? 'PATCH' : 'POST',
+      method,
       headers: {
         Authorization: `Bearer ${token}`,
         'Notion-Version': '2022-06-28',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(req.body || {}),
+      body: method === 'GET' ? undefined : JSON.stringify(req.body || {}),
     })
 
     const data = await notionRes.json()
